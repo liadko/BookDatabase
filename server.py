@@ -23,7 +23,7 @@ def recv_from_client(client):
 def send(client, msg, log=False):
     
     if(log):
-        print(f"Server Sending The Message: \'{msg}\'")
+        print(f"Server Sending The Message: \'{msg}\'\n")
     
     message_bytes = msg.encode() # string to bytes
     msg_length = len(message_bytes) # get length int
@@ -45,21 +45,19 @@ def try_sign_in(client):
         send(client, "INCORRECT", 1)
         return False
     
-    request  = request_parts[0]
-    username = request_parts[1]
-    password = request_parts[2] 
+    (request, username, password)  = request_parts
     
     if(request == "REGISTER"):
-        if(user_exists(username)):
+        if(db_user_exists(username)):
             send(client, "USEREXISTS", 1)
             return False
         
         # success!
-        add_user(username, password)
+        db_add_user(username, password)
         return True
         
     if(request == "LOGIN"):
-        if(not user_password_combo_exists(username, password)):
+        if(not db_user_password_combo_exists(username, password)):
             send(client, "INCORRECT", 1)
             return False
         
@@ -68,14 +66,70 @@ def try_sign_in(client):
     
     
     print("Unrecognised Registeration/login message")
+    send(client, "INCORRECT", 1)
     return False        
-            
+
+
+def booklist_string():
+    books = db_fetch_book_list()
+    if(len(books) == 0):
+        return "Library Is Empty."
+    
+    s = "   " + "Title".ljust(25, ' ') + " Author\n"
+    for i, book in enumerate(books):
+        (_, title, author) = book
+        s += f"{i+1}. {str(title).ljust(25, ' ')} {str(author)}\n"
+    
+    return s
+
+
+def try_add_book(request_parts):
+    if(len(request_parts) != 3):
+        return "Invalid Add request."
+        
+    if(db_book_exists(request_parts[1])):
+        return f"Book Titled {request_parts[1]} already exists."
+    
+    db_add_book(request_parts[1], request_parts[2])
+    return f"Successfuly Added Book Titled {request_parts[1]} To Library."
+
+def try_remove_book(request_parts):
+    if(len(request_parts) != 2):
+        return "Invalid Remove request."
+        
+    if(not db_book_exists(request_parts[1])):
+        return f"Book Titled {request_parts[1]} does not exist."
+    
+    db_remove_book(request_parts[1])
+    return f"Successfuly Removed Book Titled {request_parts[1]} From Library."
+
+def get_response(client_msg):
+    
+    if(not client_msg):
+        return None
+    
+    request_parts = client_msg.split("~")
+    
+    request = request_parts[0]
+    
+    if(request == "GETBOOKS"):
+        return booklist_string()
+    
+    if(request == "ADD"):
+        return try_add_book(request_parts)
+    
+    if(request == "REMOVE"):
+        return try_remove_book(request_parts)
+    
+    
+    return "Server Does Not Understand Request: {}".format(client_msg)
 
 # Function to handle client requests
 def handle_client(client:socket):
     
+    # SIGN IN PROCESS
     success = False
-    while(success == False):
+    while success == False:
         success = try_sign_in(client)
         
         if(success == None):
@@ -85,61 +139,22 @@ def handle_client(client:socket):
         
     send(client, "SUCCESS", 1)
     
+    # SERVER CLIENT CORRESPONDENCE
     while True:
-        
-        msg = recv_from_client(client)
+        client_msg = recv_from_client(client)
 
+        response = get_response(client_msg)
         
-        if(not msg):
-            break
+        if(response == None):
+            print("Client Disconnected.")
+            client.close()
+            return
         
-        incoming_msg = msg.split("~")
-        
-        if (incoming_msg[0] == 'GETBOOKS'):
-            books = fetch_books()
-            if(len(books) == 0):
-                send(client, "Library Is Empty.")
-            else:
-                s = "\n   " + "Title".ljust(25, ' ') + " Author\n"
-                for i, book in enumerate(books):
-                    s += f"{i+1}. {str(book[1]).ljust(25, ' ')} {str(book[2])}\n"
-                send(client, s)
-            continue
-        elif(incoming_msg[0] == 'ADD'):
-            if(len(incoming_msg) != 3):
-                send(client, "Invalid Add request.")
-            elif(book_exists(incoming_msg[1])):
-                send(client, f"Book Titled {incoming_msg[1]} already exists.")
-            else:
-                add_book(incoming_msg[1], incoming_msg[2])
-                send(client, f"Successfuly Added Book Titled {incoming_msg[1]} To Library.")
-            continue
-        elif(incoming_msg[0] == 'REMOVE'):
-            if(len(incoming_msg) != 2):
-                send(client, "Invalid Remove request.")
-            elif(not book_exists(incoming_msg[1])):
-                send(client, f"Book Titled {incoming_msg[1]} does not exist.")
-            else:
-                remove_book(incoming_msg[1])
-                send(client, f"Successfuly Removed Book Titled {incoming_msg[1]} From Library.")
-            continue
-        elif(incoming_msg[0] == 'UPDATE'):
-            pass  
-            continue
-        
-        
-        elif(msg == 'LEAVING'):
-            pass
-        
-        else:
-            print(f"UNHANDLED MSG FROM CLIENT: {msg}")
+        send(client, response, 1)
         
 
 
-    client.close()
-
-
-def user_exists(username):
+def db_user_exists(username):
     connection = sqlite3.connect('books.db')
     cursor = connection.cursor()
     cursor.execute(f"SELECT * FROM Users WHERE Username LIKE '{username}'")
@@ -148,7 +163,7 @@ def user_exists(username):
     connection.close()
     return len(users_with_name) > 0
 
-def user_password_combo_exists(username, password):
+def db_user_password_combo_exists(username, password):
     connection = sqlite3.connect('books.db')
     cursor = connection.cursor()
     cursor.execute(f"SELECT * FROM Users WHERE Username = '{username}' AND Password = '{password}';")
@@ -157,7 +172,7 @@ def user_password_combo_exists(username, password):
     connection.close()
     return len(users) > 0
 
-def book_exists(title):
+def db_book_exists(title):
     connection = sqlite3.connect('books.db')
     cursor = connection.cursor()
     cursor.execute(f"SELECT * FROM Books WHERE Title LIKE '{title}'")
@@ -167,7 +182,7 @@ def book_exists(title):
     return len(books_with_title) > 0
 
 # Function to fetch books from the SQLite database
-def fetch_books():
+def db_fetch_book_list():
     connection = sqlite3.connect('books.db')
     cursor = connection.cursor()
     cursor.execute("SELECT * FROM Books ORDER BY Title")
@@ -176,7 +191,7 @@ def fetch_books():
     return books
 
 # Function to add a book to the database
-def add_book(title, author):
+def db_add_book(title, author):
     connection = sqlite3.connect('books.db')
     cursor = connection.cursor()
     cursor.execute(f"INSERT INTO Books (Title, Author) VALUES ('{title}', '{author}')")
@@ -184,7 +199,7 @@ def add_book(title, author):
     connection.close()
 
 # Function to add a book to the database
-def add_user(name, password):
+def db_add_user(name, password):
     connection = sqlite3.connect('books.db')
     cursor = connection.cursor()
     cursor.execute(f"INSERT INTO Users (Username, Password) VALUES ('{name}', '{password}')")
@@ -193,20 +208,13 @@ def add_user(name, password):
 
 
 # Function to remove a book from the database
-def remove_book(book_title):
+def db_remove_book(book_title):
     connection = sqlite3.connect('books.db')
     cursor = connection.cursor()
     cursor.execute(f"DELETE FROM Books WHERE Title = ?", (book_title,))
     connection.commit()
     connection.close()
 
-# Function to update reading progress in the database
-def update_reading(book_details):
-    connection = sqlite3.connect('books.db')
-    cursor = connection.cursor()
-    cursor.execute("UPDATE Books SET CurrentPage=?, TotalPages=? WHERE Title=?", book_details.split(','))
-    connection.commit()
-    connection.close()
 
 
 
