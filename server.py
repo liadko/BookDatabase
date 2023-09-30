@@ -7,10 +7,12 @@ import threading
 
 
 
+lock = threading.Lock()
+
 def recv_from_client(client):
     #receive first byte, also check if he left
     try:
-        msg_length = int.from_bytes(client.recv(1), 'little') # convert first received byte to int
+        msg_length = int.from_bytes(client.recv(2), 'little') # convert first received byte to int
     except Exception as e:
         return None
     
@@ -23,11 +25,11 @@ def recv_from_client(client):
 def send(client, msg, log=False):
     
     if(log):
-        print(f"Server Sending The Message: \'{msg}\'\n")
+        print(f"Server Sending {len(msg)} bytes: \'{msg}\'\n")
     
     message_bytes = msg.encode() # string to bytes
     msg_length = len(message_bytes) # get length int
-    msg_length_bytes = msg_length.to_bytes(1, byteorder='little') # int to byte
+    msg_length_bytes = msg_length.to_bytes(2, byteorder='little') # int to byte
     client.send(msg_length_bytes + message_bytes)
 
 # returns True on success, False on fail, and None on Disconnect
@@ -120,9 +122,10 @@ def get_response(client_msg):
     
     if(request == "REMOVE"):
         return try_remove_book(request_parts)
-    
-    
+        
     return "Server Does Not Understand Request: {}".format(client_msg)
+
+
 
 # Function to handle client requests
 def handle_client(client:socket):
@@ -130,7 +133,9 @@ def handle_client(client:socket):
     # SIGN IN PROCESS
     success = False
     while success == False:
+        lock.acquire()
         success = try_sign_in(client)
+        lock.release()
         
         if(success == None):
             print("Client Left While Signing In")
@@ -143,7 +148,9 @@ def handle_client(client:socket):
     while True:
         client_msg = recv_from_client(client)
 
+        lock.acquire()
         response = get_response(client_msg)
+        lock.release()
         
         if(response == None):
             print("Client Disconnected.")
@@ -218,7 +225,7 @@ def db_remove_book(book_title):
 
 
 
-# Main server function
+# Main server method
 def main():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind(('0.0.0.0', 9999))

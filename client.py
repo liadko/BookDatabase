@@ -9,18 +9,18 @@ def recv_from_server():
     global server
     
     try:
-        msg_length = int.from_bytes(server.recv(1), "little")  # single msg length byte
+        msg_length = int.from_bytes(server.recv(2), "little")  # two byte msg length
         msg = server.recv(msg_length).decode()
     except Exception as e:
-        return 'LEAVE' # if server malfunctions, we pretend it told us to leave
+        return None 
     
     return msg
 
 def send(msg):
     global server
     message = msg.encode()
-    msg_length = len(message)  # should be less than 256 if got up to here, fits in a single byte
-    msg_length = msg_length.to_bytes(1, byteorder="little")  # convert to byte
+    msg_length = len(message)  # should be less than 2^16, fits in a two bytes
+    msg_length = msg_length.to_bytes(2, byteorder="little")  # convert to bytes
     full_message = msg_length + message
     server.send(full_message)
 
