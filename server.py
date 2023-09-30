@@ -20,41 +20,70 @@ def recv_from_client(client):
 
     return msg
 
-def send(client, msg):
-    message = msg.encode() # string to bytes
-    msg_length = len(message) # get length int
-    msg_length = msg_length.to_bytes(1, byteorder='little') # int to byte
-    full_message = msg_length + message # append msg length to msg 
-    client.send(full_message)
+def send(client, msg, log=False):
+    
+    if(log):
+        print(f"Server Sending The Message: \'{msg}\'")
+    
+    message_bytes = msg.encode() # string to bytes
+    msg_length = len(message_bytes) # get length int
+    msg_length_bytes = msg_length.to_bytes(1, byteorder='little') # int to byte
+    client.send(msg_length_bytes + message_bytes)
+
+# returns True on success, False on fail, and None on Disconnect
+def try_sign_in(client):
+    
+    signin_reguest = recv_from_client(client) 
+    
+    if(not signin_reguest):
+        return None # client disconnected
+    
+    request_parts = signin_reguest.split("~")
+    
+    if(len(request_parts) != 3):
+        print("Client Has Sent Invalid Signin Request")
+        send(client, "INCORRECT", 1)
+        return False
+    
+    request  = request_parts[0]
+    username = request_parts[1]
+    password = request_parts[2] 
+    
+    if(request == "REGISTER"):
+        if(user_exists(username)):
+            send(client, "USEREXISTS", 1)
+            return False
+        
+        # success!
+        add_user(username, password)
+        return True
+        
+    if(request == "LOGIN"):
+        if(not user_password_combo_exists(username, password)):
+            send(client, "INCORRECT", 1)
+            return False
+        
+        # success!
+        return True
+    
+    
+    print("Unrecognised Registeration/login message")
+    return False        
+            
 
 # Function to handle client requests
-def handle_client(client):
+def handle_client(client:socket):
     
-    while(True):
-        msg:str = recv_from_client(client)
-        incoming_msg = msg.split("~")
+    success = False
+    while(success == False):
+        success = try_sign_in(client)
         
-        if(len(incoming_msg) != 3):
-            print("Client Has Sent Invalid")
-            send(client, "INCORRECT signin message")
+        if(success == None):
+            print("Client Left While Signing In")
+            client.close()
+            return
         
-        elif(incoming_msg[0] == "REGISTER"):
-            if(user_exists(incoming_msg[1])):
-                send(client, "USEREXISTS")
-                continue
-            add_user(incoming_msg[1], incoming_msg[2])
-            send(client, "SUCCESS")
-            break
-            
-        elif(incoming_msg[0] == "LOGIN"):
-            if(user_password_combo_exists(incoming_msg[1], incoming_msg[2])):
-                send(client, "SUCCESS")
-                break
-            else:
-                send(client, "INCORRECT")
-        else:
-            print("Unrecognised Registeration/login message")
-    
+    send(client, "SUCCESS", 1)
     
     while True:
         
@@ -178,6 +207,8 @@ def update_reading(book_details):
     cursor.execute("UPDATE Books SET CurrentPage=?, TotalPages=? WHERE Title=?", book_details.split(','))
     connection.commit()
     connection.close()
+
+
 
 # Main server function
 def main():
